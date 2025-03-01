@@ -40,9 +40,18 @@ def search_articles(query: str, model: str = "direct", api_key: str = None, n_re
         print(f"Document: {article['document'][:300]}...")  # Show first 300 chars
         print()
     
+    if results.get("reasoning_process"):
+        print("\nChain of Thought:")
+        print("-" * 80)
+        print(results["reasoning_process"])
+        print("-" * 80)
+        print()
+    
     if results.get("generated_response"):
         print("\nAI-Generated Response:")
+        print("-" * 80)
         print(results["generated_response"])
+        print("-" * 80)
 
 if __name__ == "__main__":
     # Example 1: Direct vector search
@@ -60,7 +69,8 @@ if __name__ == "__main__":
     search_articles(
         query="What are the main challenges in CAR-T cell therapy?",
         model="deepseek",
-        api_key="your_deepseek_api_key_here",
+        # api_key="your_deepseek_api_key_here",
+        api_key="sk-0aa0703a08854fb1968e5ca3a829d981",
         n_results=3
     )
     # """ 
