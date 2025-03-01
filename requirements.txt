@@ -1,0 +1,9 @@
+biopython==1.83
+chromadb
+sentence-transformers==2.5.1
+python-dotenv==1.0.1
+requests==2.31.0
+tqdm==4.66.2
+fastapi==0.110.0
+uvicorn==0.27.1
+pydantic==2.6.3 
