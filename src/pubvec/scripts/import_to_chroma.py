@@ -4,35 +4,74 @@ from chromadb.utils import embedding_functions
 from tqdm import tqdm
 import logging
 import sys
+import json
+import torch
+import time
 from typing import List, Dict, Generator
 import argparse
+from pathlib import Path
+
+# Get project root directory (2 levels up from this script)
+PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
 
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('chroma_import.log'),
+        logging.FileHandler(PROJECT_ROOT / 'logs' / 'chroma_import.log'),
         logging.StreamHandler(sys.stdout)
     ]
 )
 
 class PubMedChromaImporter:
     def __init__(self, 
-                 sqlite_path: str = "pubmed_data.db",
-                 persist_dir: str = "./chroma_db",
-                 batch_size: int = 1000):
+                 sqlite_path: Path = PROJECT_ROOT / "data" / "db" / "pubmed_data.db",
+                 persist_dir: Path = PROJECT_ROOT / "chroma_db",
+                 batch_size: int = 1000,
+                 checkpoint_file: Path = PROJECT_ROOT / "data" / "import_checkpoint.json",
+                 use_gpu: bool = True):
         """Initialize the importer."""
         self.sqlite_path = sqlite_path
         self.persist_dir = persist_dir
         self.batch_size = batch_size
+        self.checkpoint_file = checkpoint_file
+        self.use_gpu = use_gpu and torch.cuda.is_available()
+        
+        # Load checkpoint if exists
+        self.last_processed_offset = 0
+        if self.checkpoint_file.exists():
+            try:
+                with open(self.checkpoint_file, 'r') as f:
+                    checkpoint_data = json.load(f)
+                    self.last_processed_offset = checkpoint_data.get('last_processed_offset', 0)
+                    logging.info(f"Resuming from offset: {self.last_processed_offset}")
+            except Exception as e:
+                logging.warning(f"Failed to load checkpoint file: {str(e)}")
+        
+        # Check if database file exists
+        if not self.sqlite_path.exists():
+            logging.error(f"Database file not found: {self.sqlite_path}")
+            logging.error("Please run the download_pubmed.py script first to create the database.")
+            raise FileNotFoundError(f"Database file not found: {self.sqlite_path}")
         
         # Initialize ChromaDB
-        self.chroma_client = chromadb.PersistentClient(path=persist_dir)
+        self.chroma_client = chromadb.PersistentClient(path=str(persist_dir))
+        
+        # Device selection for the embedding model
+        device = "cuda" if self.use_gpu else "cpu"
+        if self.use_gpu:
+            logging.info(f"Using GPU for embeddings: {torch.cuda.get_device_name(0)}")
+        else:
+            if torch.cuda.is_available():
+                logging.warning("GPU is available but not being used. Set use_gpu=True to enable.")
+            else:
+                logging.info("No GPU detected, using CPU for embeddings.")
         
         # Use BGE-M3 for embeddings (better for biomedical text)
         self.embedding_function = embedding_functions.SentenceTransformerEmbeddingFunction(
-            model_name="BAAI/bge-m3"
+            model_name="BAAI/bge-m3",
+            device=device
         )
         
         # Create or get collection
@@ -42,38 +81,64 @@ class PubMedChromaImporter:
             metadata={"description": "PubMed articles with titles and abstracts"}
         )
     
+    def _save_checkpoint(self, offset: int) -> None:
+        """Save current processing offset as a checkpoint."""
+        try:
+            with open(self.checkpoint_file, 'w') as f:
+                json.dump({
+                    'last_processed_offset': offset,
+                    'timestamp': str(time.time()),
+                }, f)
+            logging.debug(f"Checkpoint saved at offset: {offset}")
+        except Exception as e:
+            logging.warning(f"Failed to save checkpoint: {str(e)}")
+    
     def _get_article_batches(self) -> Generator[List[Dict], None, None]:
         """Get articles from SQLite in batches."""
-        conn = sqlite3.connect(self.sqlite_path)
-        conn.row_factory = sqlite3.Row
-        cur = conn.cursor()
-        
-        # Get total count for progress bar
-        total = cur.execute("SELECT COUNT(*) FROM articles").fetchone()[0]
-        logging.info(f"Total articles to process: {total}")
-        
-        # Process in batches
-        offset = 0
-        with tqdm(total=total, desc="Processing articles") as pbar:
-            while True:
-                cur.execute("""
-                    SELECT pmid, title, abstract, authors, publication_date, 
-                           journal, publication_types, mesh_terms, keywords
-                    FROM articles 
-                    WHERE title IS NOT NULL 
-                      AND abstract IS NOT NULL
-                    LIMIT ? OFFSET ?
-                """, (self.batch_size, offset))
-                
-                batch = [dict(row) for row in cur.fetchall()]
-                if not batch:
-                    break
+        try:
+            conn = sqlite3.connect(str(self.sqlite_path))
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
+            
+            # Check if the articles table exists
+            table_check = cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='articles'").fetchone()
+            if not table_check:
+                logging.error("The 'articles' table does not exist in the database.")
+                logging.error("Please make sure you've run the download_pubmed.py script to populate the database.")
+                raise sqlite3.OperationalError("Table 'articles' not found in the database")
+            
+            # Get total count for progress bar
+            total = cur.execute("SELECT COUNT(*) FROM articles").fetchone()[0]
+            remaining = total - self.last_processed_offset
+            logging.info(f"Total articles: {total}, Already processed: {self.last_processed_offset}, Remaining: {remaining}")
+            
+            # Process in batches, starting from the last processed offset
+            offset = self.last_processed_offset
+            with tqdm(total=remaining, desc="Processing articles") as pbar:
+                while True:
+                    cur.execute("""
+                        SELECT pmid, title, abstract, authors, publication_date, 
+                               journal, publication_types, mesh_terms, keywords
+                        FROM articles 
+                        WHERE title IS NOT NULL 
+                          AND abstract IS NOT NULL
+                        LIMIT ? OFFSET ?
+                    """, (self.batch_size, offset))
                     
-                pbar.update(len(batch))
-                yield batch
-                offset += self.batch_size
-        
-        conn.close()
+                    batch = [dict(row) for row in cur.fetchall()]
+                    if not batch:
+                        break
+                        
+                    pbar.update(len(batch))
+                    yield batch
+                    offset += len(batch)
+                    self._save_checkpoint(offset)
+            
+            conn.close()
+        except sqlite3.OperationalError as e:
+            logging.error(f"SQLite error: {str(e)}")
+            logging.error(f"Please check that the database at {self.sqlite_path} is properly initialized.")
+            raise
     
     def import_articles(self):
         """Import articles from SQLite to ChromaDB."""
@@ -118,6 +183,11 @@ class PubMedChromaImporter:
                     logging.error(f"Error adding batch to ChromaDB: {str(e)}")
                     total_skipped += len(ids)
             
+            # Clear checkpoint file after successful completion
+            if self.checkpoint_file.exists():
+                self.checkpoint_file.unlink()
+                logging.info("Checkpoint file removed after successful completion")
+                
             logging.info(f"Import completed. Imported: {total_imported}, Skipped: {total_skipped}")
             
         except Exception as e:
@@ -126,19 +196,66 @@ class PubMedChromaImporter:
 
 def main():
     parser = argparse.ArgumentParser(description="Import PubMed articles from SQLite to ChromaDB")
-    parser.add_argument("--sqlite-path", default="pubmed_data.db", help="Path to SQLite database")
-    parser.add_argument("--persist-dir", default="./chroma_db", help="ChromaDB persistence directory")
+    parser.add_argument("--sqlite-path", 
+                       type=Path,
+                       default=PROJECT_ROOT / "data" / "db" / "pubmed_data.db", 
+                       help="Path to SQLite database")
+    parser.add_argument("--persist-dir", 
+                       type=Path,
+                       default=PROJECT_ROOT / "data" / "chroma_db", 
+                       help="ChromaDB persistence directory")
     parser.add_argument("--batch-size", type=int, default=1000, help="Batch size for processing")
+    parser.add_argument("--checkpoint-file",
+                       type=Path,
+                       default=PROJECT_ROOT / "data" / "import_checkpoint.json",
+                       help="File to store checkpoint information for resuming")
+    parser.add_argument("--use-gpu", action="store_true", default=True, 
+                       help="Use GPU for embeddings if available")
+    parser.add_argument("--resume", action="store_true", 
+                       help="Resume from last checkpoint if available")
+    parser.add_argument("--reset", action="store_true", 
+                       help="Reset checkpoint and start from beginning")
     
     args = parser.parse_args()
     
-    importer = PubMedChromaImporter(
-        sqlite_path=args.sqlite_path,
-        persist_dir=args.persist_dir,
-        batch_size=args.batch_size
-    )
-    
-    importer.import_articles()
+    try:
+        # Make sure the data directory exists
+        data_dir = PROJECT_ROOT / "data"
+        if not data_dir.exists():
+            logging.warning(f"Creating data directory: {data_dir}")
+            data_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Make sure the ChromaDB directory exists
+        chroma_dir = args.persist_dir
+        if not chroma_dir.exists():
+            logging.warning(f"Creating ChromaDB directory: {chroma_dir}")
+            chroma_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Handle checkpoint reset if requested
+        if args.reset and args.checkpoint_file.exists():
+            args.checkpoint_file.unlink()
+            logging.info("Checkpoint reset, starting from beginning")
+        
+        importer = PubMedChromaImporter(
+            sqlite_path=args.sqlite_path,
+            persist_dir=args.persist_dir,
+            batch_size=args.batch_size,
+            checkpoint_file=args.checkpoint_file,
+            use_gpu=args.use_gpu
+        )
+        
+        importer.import_articles()
+    except FileNotFoundError as e:
+        logging.error(str(e))
+        logging.error("\nTo download PubMed data and create the database, run:")
+        logging.error(f"python -m pubvec.scripts.download_pubmed --output-dir {PROJECT_ROOT / 'data'}")
+        sys.exit(1)
+    except sqlite3.OperationalError as e:
+        logging.error(f"Database error: {str(e)}")
+        sys.exit(1)
+    except Exception as e:
+        logging.error(f"Unexpected error: {str(e)}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main() 
