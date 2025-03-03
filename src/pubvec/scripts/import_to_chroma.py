@@ -10,6 +10,8 @@ import time
 from typing import List, Dict, Generator
 import argparse
 from pathlib import Path
+from chromadb.config import Settings
+from langchain.embeddings import HuggingFaceEmbeddings
 
 # Get project root directory (2 levels up from this script)
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
@@ -36,10 +38,67 @@ class PubMedChromaImporter:
         self.persist_dir = persist_dir
         self.batch_size = batch_size
         self.checkpoint_file = checkpoint_file
-        self.use_gpu = use_gpu and torch.cuda.is_available()
+        self.use_gpu = use_gpu
+        self.last_processed_offset = 0
+        self.total_articles = 0
         
         # Load checkpoint if exists
-        self.last_processed_offset = 0
+        self._load_checkpoint()
+        
+        # Initialize ChromaDB client
+        logging.info(f"Initializing ChromaDB with persist_dir: {persist_dir}")
+        settings = Settings(anonymized_telemetry=False)
+        
+        embedding_function = None
+        if use_gpu:
+            try:
+                # Try to use GPU-accelerated embedding
+                logging.info("Attempting to use GPU for embeddings")
+                embedding_function = HuggingFaceEmbeddings(
+                    model_name="sentence-transformers/all-MiniLM-L6-v2",
+                    model_kwargs={"device": "cuda"},
+                    encode_kwargs={"device": "cuda", "batch_size": 32}
+                )
+            except Exception as e:
+                logging.warning(f"Failed to initialize GPU embeddings: {str(e)}")
+                logging.info("Falling back to CPU embeddings")
+                embedding_function = None
+                
+        if embedding_function is None:
+            # Fall back to CPU
+            embedding_function = HuggingFaceEmbeddings(
+                model_name="sentence-transformers/all-MiniLM-L6-v2"
+            )
+        
+        self.client = chromadb.Client(settings=settings, path=str(persist_dir))
+        
+        # Get or create collection
+        self.collection = self.client.get_or_create_collection(
+            name="pubmed_articles",
+            embedding_function=embedding_function,
+            metadata={"hnsw:space": "cosine"}
+        )
+        
+        # Initialize total article count
+        self._calculate_total_articles()
+    
+    def _calculate_total_articles(self):
+        """Calculate the total number of articles in the database."""
+        try:
+            conn = sqlite3.connect(str(self.sqlite_path))
+            cur = conn.cursor()
+            
+            # Get total count for progress tracking
+            self.total_articles = cur.execute("SELECT COUNT(*) FROM articles").fetchone()[0]
+            logging.info(f"Total articles in database: {self.total_articles}")
+            
+            conn.close()
+        except Exception as e:
+            logging.error(f"Error calculating total articles: {str(e)}")
+            raise
+    
+    def _load_checkpoint(self):
+        """Load current processing offset as a checkpoint."""
         if self.checkpoint_file.exists():
             try:
                 with open(self.checkpoint_file, 'r') as f:
@@ -54,32 +113,6 @@ class PubMedChromaImporter:
             logging.error(f"Database file not found: {self.sqlite_path}")
             logging.error("Please run the download_pubmed.py script first to create the database.")
             raise FileNotFoundError(f"Database file not found: {self.sqlite_path}")
-        
-        # Initialize ChromaDB
-        self.chroma_client = chromadb.PersistentClient(path=str(persist_dir))
-        
-        # Device selection for the embedding model
-        device = "cuda" if self.use_gpu else "cpu"
-        if self.use_gpu:
-            logging.info(f"Using GPU for embeddings: {torch.cuda.get_device_name(0)}")
-        else:
-            if torch.cuda.is_available():
-                logging.warning("GPU is available but not being used. Set use_gpu=True to enable.")
-            else:
-                logging.info("No GPU detected, using CPU for embeddings.")
-        
-        # Use BGE-M3 for embeddings (better for biomedical text)
-        self.embedding_function = embedding_functions.SentenceTransformerEmbeddingFunction(
-            model_name="BAAI/bge-m3",
-            device=device
-        )
-        
-        # Create or get collection
-        self.collection = self.chroma_client.get_or_create_collection(
-            name="pubmed_articles",
-            embedding_function=self.embedding_function,
-            metadata={"description": "PubMed articles with titles and abstracts"}
-        )
     
     def _save_checkpoint(self, offset: int) -> None:
         """Save current processing offset as a checkpoint."""
@@ -107,10 +140,9 @@ class PubMedChromaImporter:
                 logging.error("Please make sure you've run the download_pubmed.py script to populate the database.")
                 raise sqlite3.OperationalError("Table 'articles' not found in the database")
             
-            # Get total count for progress bar
-            total = cur.execute("SELECT COUNT(*) FROM articles").fetchone()[0]
-            remaining = total - self.last_processed_offset
-            logging.info(f"Total articles: {total}, Already processed: {self.last_processed_offset}, Remaining: {remaining}")
+            # Use the pre-calculated total count instead of querying again
+            remaining = self.total_articles - self.last_processed_offset
+            logging.info(f"Total articles: {self.total_articles}, Already processed: {self.last_processed_offset}, Remaining: {remaining}")
             
             # Process in batches, starting from the last processed offset
             offset = self.last_processed_offset
@@ -143,6 +175,9 @@ class PubMedChromaImporter:
     def import_articles(self):
         """Import articles from SQLite to ChromaDB."""
         try:
+            # Calculate total articles count once before processing batches
+            self._calculate_total_articles()
+            
             total_imported = 0
             total_skipped = 0
             
