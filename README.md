@@ -10,32 +10,54 @@ A vector search engine for PubMed articles using BGE-M3 embeddings and optional 
 - Optional integration with DeepSeek API for enhanced responses
 - FastAPI interface for easy integration
 
-## Setup
+## Project Structure
 
-1. Clone the repository and install dependencies:
-```bash
-pip install -r requirements.txt
+```
+pubvec/
+├── src/pubvec/
+│   ├── core/           # Core functionality
+│   │   ├── api.py         # FastAPI server implementation
+│   │   ├── pubmed_fetcher.py  # PubMed API interaction
+│   │   └── vector_store.py    # Vector database management
+│   ├── scripts/        # Utility scripts
+│   │   ├── download_pubmed.py     # PubMed data download
+│   │   ├── import_to_chroma.py    # Database import
+│   │   └── search_example.py      # Search examples
+│   └── utils/          # Helper utilities
+├── config/            # Configuration files
+├── logs/             # Log files
+├── data/             # Data storage
+├── chroma_db/        # Vector database storage
+├── pyproject.toml    # Project configuration and dependencies
+└── README.md
 ```
 
-2. Create a `.env` file for configuration (optional):
+## Setup
+
+1. Clone the repository and install the package in development mode:
 ```bash
-DEEPSEEK_API_KEY=your_api_key_here
+pip install -e .
+```
+
+2. Create a `config/deepseek_api_key.txt` file for DeepSeek API configuration (optional):
+```bash
+echo "your_api_key_here" > config/deepseek_api_key.txt
 ```
 
 ## Usage
 
 ### 1. Populate the Vector Database
 
-Run the main script to fetch articles and create the vector database:
+Run the import script to fetch articles and create the vector database:
 
 ```bash
-python main.py --email your.email@example.com --query "your search query" --max_results 1000
+python -m pubvec.scripts.import_to_chroma --email your.email@example.com --query "your search query" --max_results 1000
 ```
 
 ### 2. Start the API Server
 
 ```bash
-python api.py
+python -m pubvec.core.api
 ```
 
 The API will be available at `http://localhost:8000`
@@ -57,15 +79,22 @@ Example request:
 
 For direct vector search without AI response, set `"model": "direct"` and omit the `api_key`.
 
-## Components
+## Core Components
 
-- `pubmed_fetcher.py`: Handles PubMed API interaction
-- `vector_store.py`: Manages the vector database using ChromaDB and BGE-M3
-- `api.py`: FastAPI server with search endpoints
-- `main.py`: Script to populate the vector database
+- `core/pubmed_fetcher.py`: Handles PubMed API interaction
+- `core/vector_store.py`: Manages the vector database using ChromaDB and BGE-M3
+- `core/api.py`: FastAPI server with search endpoints
+
+## Scripts
+
+- `scripts/download_pubmed.py`: Download PubMed data
+- `scripts/import_to_chroma.py`: Import articles into vector database
+- `scripts/search_example.py`: Example script for searching articles
 
 ## Notes
 
 - The PubMed API requires an email address for identification
 - DeepSeek API integration requires an API key
-- Vector database is persisted locally in `./chroma_db` 
+- Vector database is persisted locally in `./chroma_db`
+- Logs are stored in the `logs/` directory
+- Configuration files are stored in `config/` 

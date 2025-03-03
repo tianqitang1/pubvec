@@ -1,5 +1,17 @@
 import requests
 import json
+import os
+
+def get_deepseek_api_key():
+    """Read DeepSeek API key from file."""
+    try:
+        with open("deepseek_api_key.txt", "r") as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        raise ValueError(
+            "DeepSeek API key file (deepseek_api_key.txt) not found. "
+            "Please create this file with your API key."
+        )
 
 def search_articles(query: str, model: str = "direct", api_key: str = None, n_results: int = 5):
     """
@@ -21,7 +33,7 @@ def search_articles(query: str, model: str = "direct", api_key: str = None, n_re
     
     if model == "deepseek":
         if not api_key:
-            raise ValueError("API key is required for DeepSeek model")
+            api_key = get_deepseek_api_key()
         payload["api_key"] = api_key
     
     response = requests.post(url, json=payload)
@@ -55,22 +67,17 @@ def search_articles(query: str, model: str = "direct", api_key: str = None, n_re
 
 if __name__ == "__main__":
     # Example 1: Direct vector search
-    # print("Example 1: Direct vector search")
-    # search_articles(
-    #     query="What are the latest developments in CAR-T cell therapy?",
-    #     model="direct",
-    #     n_results=3
-    # )
+    print("Example 1: Direct vector search")
+    search_articles(
+        query="What are the latest developments in CAR-T cell therapy?",
+        model="direct",
+        n_results=3
+    )
     
     # Example 2: Using DeepSeek for AI-generated response
-    # Uncomment and add your API key to test
-    # """
     print("\nExample 2: Search with DeepSeek response")
     search_articles(
         query="What are the main challenges in CAR-T cell therapy?",
         model="deepseek",
-        # api_key="your_deepseek_api_key_here",
-        api_key="sk-0aa0703a08854fb1968e5ca3a829d981",
         n_results=3
-    )
-    # """ 
+    ) 

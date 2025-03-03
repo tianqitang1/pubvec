@@ -1,3 +1,12 @@
+other_files/
+deepseek_api_key.txt
+
+# Data directories
+data/downloads/
+data/db/
+data/chroma_db/
+data/logs/
+
 # Python
 __pycache__/
 *.py[cod]
@@ -38,7 +47,6 @@ venv.bak/
 .DS_Store
 
 # ChromaDB
-chroma_db/
 *.parquet
 index_metadata.json
 chroma.sqlite3
