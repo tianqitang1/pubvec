@@ -28,6 +28,7 @@ class VectorStore:
                     for article in articles]
         metadata = [{"year": article["date"], "title": article["title"]} 
                    for article in articles]
+        # TODO: fix metadata
         
         # Add in batches of 100
         batch_size = 100
