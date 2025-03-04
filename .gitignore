@@ -72,3 +72,4 @@ coverage.xml
 *.cover 
 results.json
 config/
+results copy.json

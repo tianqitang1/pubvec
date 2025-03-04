@@ -11,16 +11,34 @@ from pubvec.utils.cli import (
     process_query,
     display_results
 )
+from pathlib import Path
 
 def main():
     parser = argparse.ArgumentParser(description="PubVec - Biomedical Entity Ranker")
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
     
-    # Fetch command
-    fetch_parser = subparsers.add_parser("fetch", help="Fetch PubMed articles and create vector database")
-    fetch_parser.add_argument("--email", required=True, help="Email for PubMed API")
-    fetch_parser.add_argument("--query", default="cancer immunotherapy", help="PubMed search query")
-    fetch_parser.add_argument("--max_results", type=int, default=1000, help="Maximum number of articles to fetch")
+    # Download command
+    download_parser = subparsers.add_parser("download", help="Download PubMed articles and store in SQLite database")
+    download_parser.add_argument("--db-path", default="data/db/pubmed_data.db", help="Path to SQLite database")
+    download_parser.add_argument("--download-dir", default="data/downloads", help="Directory to store downloads")
+    download_parser.add_argument("--max-workers", type=int, default=4, help="Maximum number of concurrent downloads")
+    download_parser.add_argument("--batch-size", type=int, default=1000, help="Batch size for database operations")
+    
+    # Import to Chroma command
+    import_parser = subparsers.add_parser("import-to-chroma", help="Import downloaded PubMed articles into ChromaDB")
+    import_parser.add_argument("--sqlite-path", default="data/db/pubmed_data.db", help="Path to SQLite database")
+    import_parser.add_argument("--persist-dir", default="chroma_db", help="Directory to store ChromaDB")
+    import_parser.add_argument("--batch-size", type=int, default=1000, help="Batch size for import operations")
+    import_parser.add_argument("--use-gpu", action="store_true", help="Use GPU for embedding generation")
+    
+    # Combined command for download and import
+    download_import_parser = subparsers.add_parser("process-pubmed", help="Download PubMed articles and import to ChromaDB in one step")
+    download_import_parser.add_argument("--db-path", default="data/db/pubmed_data.db", help="Path to SQLite database")
+    download_import_parser.add_argument("--download-dir", default="data/downloads", help="Directory to store downloads")
+    download_import_parser.add_argument("--max-workers", type=int, default=4, help="Maximum number of concurrent downloads")
+    download_import_parser.add_argument("--batch-size", type=int, default=1000, help="Batch size for database operations")
+    download_import_parser.add_argument("--persist-dir", default="chroma_db", help="Directory to store ChromaDB")
+    download_import_parser.add_argument("--use-gpu", action="store_true", help="Use GPU for embedding generation")
     
     # Rank command
     rank_parser = subparsers.add_parser("rank", help="Rank entities from a query based on efficacy from PubMed")
@@ -38,22 +56,75 @@ def main():
     
     args = parser.parse_args()
     
-    if args.command == "fetch":
-        # Initialize fetcher and vector store
-        fetcher = PubMedFetcher(email=args.email)
-        store = VectorStore()
-
-        # Fetch articles
-        print(f"Searching PubMed for: {args.query}")
-        pmids = fetcher.search_pubmed(args.query, max_results=args.max_results)
-        print(f"Found {len(pmids)} articles. Fetching details...")
+    if args.command == "download":
+        from pubvec.scripts.download_pubmed import PubMedDownloader
         
-        articles = fetcher.fetch_articles(pmids)
-        print(f"Adding {len(articles)} articles to vector store...")
+        # Create directories if they don't exist
+        os.makedirs(os.path.dirname(args.db_path), exist_ok=True)
+        os.makedirs(args.download_dir, exist_ok=True)
         
-        # Add to vector store
-        store.add_articles(articles)
-        print("Done! You can now use the API to search the articles.")
+        # Initialize downloader
+        downloader = PubMedDownloader(
+            db_path=args.db_path,
+            download_dir=args.download_dir,
+            max_workers=args.max_workers,
+            batch_size=args.batch_size
+        )
+        
+        # Download and process PubMed articles
+        print("Starting download and processing of PubMed articles...")
+        downloader.download_and_process()
+        print("Done! PubMed articles have been downloaded and stored in SQLite database.")
+    
+    elif args.command == "import-to-chroma":
+        from pubvec.scripts.import_to_chroma import PubMedChromaImporter
+        
+        # Initialize importer
+        importer = PubMedChromaImporter(
+            sqlite_path=Path(args.sqlite_path),
+            persist_dir=Path(args.persist_dir),
+            batch_size=args.batch_size,
+            use_gpu=args.use_gpu
+        )
+        
+        # Import articles to ChromaDB
+        print("Starting import of PubMed articles to ChromaDB...")
+        importer.import_articles()
+        print("Done! PubMed articles have been imported to ChromaDB.")
+    
+    elif args.command == "process-pubmed":
+        from pubvec.scripts.download_pubmed import PubMedDownloader
+        from pubvec.scripts.import_to_chroma import PubMedChromaImporter
+        
+        # Create directories if they don't exist
+        os.makedirs(os.path.dirname(args.db_path), exist_ok=True)
+        os.makedirs(args.download_dir, exist_ok=True)
+        
+        # Initialize downloader
+        downloader = PubMedDownloader(
+            db_path=args.db_path,
+            download_dir=args.download_dir,
+            max_workers=args.max_workers,
+            batch_size=args.batch_size
+        )
+        
+        # Download and process PubMed articles
+        print("Starting download and processing of PubMed articles...")
+        downloader.download_and_process()
+        print("Done! PubMed articles have been downloaded and stored in SQLite database.")
+        
+        # Initialize importer
+        importer = PubMedChromaImporter(
+            sqlite_path=Path(args.db_path),
+            persist_dir=Path(args.persist_dir),
+            batch_size=args.batch_size,
+            use_gpu=args.use_gpu
+        )
+        
+        # Import articles to ChromaDB
+        print("Starting import of PubMed articles to ChromaDB...")
+        importer.import_articles()
+        print("Done! PubMed articles have been imported to ChromaDB.")
     
     elif args.command == "rank":
         # Get API key

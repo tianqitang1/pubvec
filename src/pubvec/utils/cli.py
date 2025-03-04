@@ -234,7 +234,7 @@ Based on the provided PubMed articles, summarize the efficacy of {entity}
 for {disease} in {subtype} type.
 
 When responding, please keep the following points in mind:
-- Today is {datetime.now().strftime('%Y-%m-%d')}.
+- Today is {datetime.datetime.now().strftime('%Y-%m-%d')}.
 - Focus on synthesizing information from multiple articles to provide a comprehensive answer.
 - Evaluate the scientific relevance and recency of each article to the query.
 - For systematic reviews or meta-analyses, prioritize these as they provide higher-level evidence.
@@ -293,7 +293,8 @@ async def rank_entities(entity_summaries: List[Dict], query: str, base_url: str,
   {{
     "name": "entity name",
     "efficacy_score": float between 0.0-1.0,
-    "summary": "one-sentence explanation of ranking"
+    "summary": "one-sentence explanation of ranking",
+    "references": "PMIDs of the articles used to generate the summary"
   }}
 ]
 ```

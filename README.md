@@ -1,39 +1,52 @@
-# PubMed Vector Search
+# PubMed Entity Ranking System
 
-A vector search engine for PubMed articles using BGE-M3 embeddings and optional DeepSeek API integration for enhanced responses.
+A multi-agent system that helps biomedical researchers rank the efficacy of alleles, genes, or drugs for specific diseases and tissue/types using PubMed data and LLM technology.
+
+## Overview
+
+This system allows users to:
+1. Input a natural language query about the efficacy of multiple biomedical entities
+2. Extract entities (alleles/genes/drugs) from the query using LLM
+3. Search PubMed articles for each entity's efficacy in the context of the disease and tissue/type
+4. Rank the entities based on their efficacy using LLM analysis of the research evidence
+5. Visualize the rankings through a web interface
 
 ## Features
 
-- Fetch articles from PubMed using their API
-- Create vector embeddings using BGE-M3
-- Search similar articles using vector similarity
-- Optional integration with DeepSeek API for enhanced responses
-- FastAPI interface for easy integration
-- Web interface for biomedical entity ranking
+- Natural language query processing
+- Entity extraction using LLM
+- PubMed article search via vector similarity
+- BGE-M3 embeddings for semantic search
+- Entity ranking based on efficacy evidence
+- Web-based user interface
+- DeepSeek API integration (via OpenAI-compatible API)
 
 ## Project Structure
 
 ```
 pubvec/
 ├── src/pubvec/
-│   ├── core/           # Core functionality
-│   │   ├── api.py         # FastAPI server implementation
+│   ├── core/               # Core functionality
+│   │   ├── api.py          # FastAPI server implementation
 │   │   ├── pubmed_fetcher.py  # PubMed API interaction
 │   │   └── vector_store.py    # Vector database management
-│   ├── web/            # Web interface
-│   │   ├── app.py         # Web application backend
-│   │   ├── templates/     # HTML templates
-│   │   └── static/        # Static assets
-│   ├── scripts/        # Utility scripts
-│   │   ├── download_pubmed.py     # PubMed data download
-│   │   ├── import_to_chroma.py    # Database import
+│   ├── web/                # Web interface
+│   │   ├── app.py          # Web application backend
+│   │   ├── templates/      # HTML templates
+│   │   └── static/         # Static assets
+│   ├── scripts/            # Utility scripts
+│   │   ├── download_pubmed.py     # PubMed data download script
+│   │   ├── import_to_chroma.py    # ChromaDB import script
 │   │   └── search_example.py      # Search examples
-│   └── utils/          # Helper utilities
-├── config/            # Configuration files
-├── logs/             # Log files
-├── data/             # Data storage
-├── chroma_db/        # Vector database storage
-├── pyproject.toml    # Project configuration and dependencies
+│   ├── utils/              # Helper utilities
+│   └── prompts/            # LLM prompts
+├── config/                 # Configuration files
+├── logs/                   # Log files
+├── data/                   # Data storage
+│   ├── db/                 # SQLite database
+│   └── downloads/          # PubMed downloads
+├── chroma_db/              # Vector database storage
+├── pyproject.toml          # Project configuration and dependencies
 └── README.md
 ```
 
@@ -49,48 +62,89 @@ pip install -e .
 pip install -r requirements.txt
 ```
 
-3. Create a `config/deepseek_api_key.txt` file for DeepSeek API configuration (optional):
+3. Create a `config/deepseek_api_key.txt` file with your DeepSeek API key:
 ```bash
 echo "your_api_key_here" > config/deepseek_api_key.txt
 ```
 
 ## Usage
 
-### 1. Populate the Vector Database
+### Data Pipeline Setup
 
-Run the import script to fetch articles and create the vector database:
+The system requires PubMed data to be downloaded and vectorized before use. This is a one-time setup process:
 
-```bash
-python main.py fetch --email your.email@example.com --query "your search query" --max_results 1000
-```
+#### 1. Download PubMed Data
 
-### 2. Start the API Server
+Download the entire PubMed dataset and process it into a SQLite database:
 
 ```bash
-python -m pubvec.core.api
+python main.py download
 ```
 
-The API will be available at `http://localhost:8000`
+Options:
+- `--db-path`: Path to SQLite database (default: "data/db/pubmed_data.db")
+- `--download-dir`: Directory to store downloads (default: "data/downloads")
+- `--max-workers`: Maximum number of concurrent downloads (default: 4)
+- `--batch-size`: Batch size for database operations (default: 1000)
 
-### 3. Start the Web Application
+#### 2. Import to Vector Database
+
+Import the downloaded PubMed articles into ChromaDB with BGE-M3 embeddings:
+
+```bash
+python main.py import-to-chroma
+```
+
+Options:
+- `--sqlite-path`: Path to SQLite database (default: "data/db/pubmed_data.db")
+- `--persist-dir`: Directory to store ChromaDB (default: "chroma_db")
+- `--batch-size`: Batch size for import operations (default: 1000)
+- `--use-gpu`: Use GPU for embedding generation (flag)
+
+#### 3. Combined Download and Import
+
+To perform both steps in one command:
+
+```bash
+python main.py process-pubmed
+```
+
+This command accepts all options from both the `download` and `import-to-chroma` commands.
+
+### Entity Ranking
+
+#### Command Line Interface
+
+Rank biomedical entities for a specific disease and tissue/type:
+
+```bash
+python main.py rank "Rank the efficacy of BRCA1, TP53, and Tamoxifen for HER2-positive breast cancer"
+```
+
+Options:
+- `--cheap`: Use cheaper deepseek-chat model instead of deepseek-reasoner
+- `--debug`: Enable debug mode with detailed logs
+- `--output`: Output file to save results (JSON format)
+- `--base-url`: API base URL (default: https://api.deepseek.com)
+
+#### Web Interface
+
+Start the web interface for entity ranking:
 
 ```bash
 python main.py web
 ```
 
-The web application will be available at `http://localhost:8001`
+Options:
+- `--host`: Host to run the web server on (default: 0.0.0.0)
+- `--port`: Port to run the web server on (default: 8001)
+- `--prefill-api-key`: Prefill API key from config/deepseek_api_key.txt
 
-Alternatively, you can run the web application directly:
-
-```bash
-python -m pubvec.web
-```
-
-### 4. Using the Web Interface
+### Using the Web Interface
 
 1. Open your browser and navigate to `http://localhost:8001`
 2. Enter your query in the text area, including the entities (alleles/genes/drugs), disease, and tissue/type
-3. Enter your DeepSeek API base URL and API key in the API Settings section
+3. Enter your LLM API base URL and API key in the API Settings section
 4. Click "Process Query" to analyze and rank the entities
 
 Example query:
@@ -98,52 +152,45 @@ Example query:
 Rank the efficacy of BRCA1, TP53, and Tamoxifen for HER2-positive breast cancer
 ```
 
-### 5. API Endpoints
+## How It Works
 
-#### POST /search
-Search for articles and optionally get an AI-generated response.
+1. The system parses the user's query using an LLM to extract:
+   - The list of biomedical entities (alleles/genes/drugs)
+   - The disease context
+   - The tissue/type context
 
-Example request:
-```json
-{
-    "query": "What are the latest developments in CAR-T therapy?",
-    "model": "deepseek",
-    "api_key": "your_deepseek_api_key",
-    "n_results": 5
-}
-```
+2. For each identified entity, the system:
+   - Constructs a specific search query
+   - Uses vector similarity to find relevant PubMed articles
+   - Retrieves information about the entity's efficacy
 
-For direct vector search without AI response, set `"model": "direct"` and omit the `api_key`.
+3. All entity information is aggregated and sent to an LLM to:
+   - Analyze the evidence for each entity
+   - Rank entities based on their efficacy
+   - Provide reasoning for the ranking
 
-#### POST /process_query
+4. Results are presented to the user through:
+   - A ranked list of entities
+   - Supporting evidence from PubMed
+   - Explanations for the rankings
+
+## API Endpoints
+
+### POST /search
+Search for PubMed articles and optionally get an AI-generated response.
+
+### POST /process_query
 Process a user query to extract entities and rank them based on efficacy.
 
-Example request:
-```json
-{
-    "query": "Rank the efficacy of BRCA1, TP53, and Tamoxifen for HER2-positive breast cancer",
-    "base_url": "https://api.deepseek.com",
-    "api_key": "your_deepseek_api_key"
-}
-```
+## Advanced Configuration
 
-## Core Components
-
-- `core/pubmed_fetcher.py`: Handles PubMed API interaction
-- `core/vector_store.py`: Manages the vector database using ChromaDB and BGE-M3
-- `core/api.py`: FastAPI server with search endpoints
-- `web/app.py`: Web application for entity ranking
-
-## Scripts
-
-- `scripts/download_pubmed.py`: Download PubMed data
-- `scripts/import_to_chroma.py`: Import articles into vector database
-- `scripts/search_example.py`: Example script for searching articles
+- Modify the LLM prompts in `src/pubvec/prompts/`
+- Configure the vector search parameters in `src/pubvec/core/vector_store.py`
+- Adjust the web interface in `src/pubvec/web/templates/`
 
 ## Notes
 
-- The PubMed API requires an email address for identification
-- DeepSeek API integration requires an API key
-- Vector database is persisted locally in `./chroma_db`
-- Logs are stored in the `logs/` directory
-- Configuration files are stored in `config/` 
+- Vector database (ChromaDB) is persisted locally and not updated for every query
+- The PubMed dataset download is a one-time operation that fetches the entire dataset
+- The system uses BGE-M3 embeddings for vector similarity search
+- DeepSeek API integration uses an OpenAI-compatible API interface 

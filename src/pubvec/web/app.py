@@ -11,16 +11,9 @@ from typing import List, Dict, Optional, Any
 import requests
 from pydantic import BaseModel, Field
 import traceback
+from pubvec.utils.logging_utils import log_llm_request, log_llm_response
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler("pubvec_web.log"),
-        logging.StreamHandler()
-    ]
-)
+# Get logger from logging_utils (which ensures consistent configuration)
 logger = logging.getLogger("pubvec.web")
 
 # Add the parent directory to sys.path
@@ -139,10 +132,8 @@ async def process_query(request: RankRequest):
 
 async def extract_entities(query: str, base_url: str, api_key: str) -> List[str]:
     """
-    Use LLM to extract entities (alleles/genes/drugs) from the user query.
+    Extract entities (alleles/genes/drugs) from the query using LLM.
     """
-    logger.info("Extracting entities from query")
-    
     prompt = f"""
 You are a biomedical entity extractor. 
 Extract all mentioned alleles, genes, and drugs from the following query.
@@ -171,6 +162,9 @@ Output:
 """
     
     try:
+        # Log the full LLM request
+        log_llm_request(logger, prompt, model="deepseek-chat", additional_info={"function": "extract_entities", "query": query})
+        
         response = requests.post(
             f"{base_url}/v1/chat/completions",
             headers={
@@ -188,7 +182,9 @@ Output:
             raise HTTPException(status_code=500, detail=f"Error querying LLM API: {response.text}")
         
         content = response.json()["choices"][0]["message"]["content"]
-        logger.info(f"LLM response for entity extraction: {content}")
+        
+        # Log the full LLM response
+        log_llm_response(logger, content, model="deepseek-chat", additional_info={"function": "extract_entities", "query": query})
         
         # Process the content to extract JSON if it's wrapped in markdown
         json_content = extract_json_from_llm_response(content)
@@ -258,6 +254,9 @@ Output: {{"disease": "breast cancer", "disease_subtype": "triple-negative"}}
 Query: "Rank the efficacy of BRCA1, TP53, and Tamoxifen for HER2-positive breast cancer"
 Output: {{"disease": "breast cancer", "disease_subtype": "HER2-positive"}}
 """
+        # Log the full LLM request
+        log_llm_request(logger, prompt, model="deepseek-chat", additional_info={"function": "extract_disease_subtype", "query": query})
+        
         response = requests.post(
             f"{base_url}/v1/chat/completions",
             headers={
@@ -275,7 +274,9 @@ Output: {{"disease": "breast cancer", "disease_subtype": "HER2-positive"}}
             raise HTTPException(status_code=500, detail=f"Error querying LLM API: {response.text}")
         
         content = response.json()["choices"][0]["message"]["content"]
-        logger.info(f"LLM response for disease extraction: {content}")
+        
+        # Log the full LLM response
+        log_llm_response(logger, content, model="deepseek-chat", additional_info={"function": "extract_disease_subtype", "query": query})
         
         # Process the content to extract JSON if it's wrapped in markdown
         json_content = extract_json_from_llm_response(content)
@@ -404,7 +405,9 @@ async def rank_entities(entity_summaries: List[Dict], query: str, base_url: str,
         ]
         """
         
-        logger.info("Querying LLM for entity ranking")
+        # Log the full LLM request
+        log_llm_request(logger, prompt, model="deepseek-reasoner", additional_info={"function": "rank_entities", "query": query})
+        
         response = requests.post(
             f"{base_url}/v1/chat/completions",
             headers={
@@ -422,7 +425,9 @@ async def rank_entities(entity_summaries: List[Dict], query: str, base_url: str,
             raise HTTPException(status_code=500, detail=f"Error querying LLM API: {response.text}")
         
         content = response.json()["choices"][0]["message"]["content"]
-        logger.info(f"LLM response for ranking: {content}")
+        
+        # Log the full LLM response
+        log_llm_response(logger, content, model="deepseek-reasoner", additional_info={"function": "rank_entities", "query": query})
         
         # Process the content to extract JSON if it's wrapped in markdown
         json_content = extract_json_from_llm_response(content)

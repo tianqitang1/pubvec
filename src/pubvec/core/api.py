@@ -7,10 +7,15 @@ import os
 from dotenv import load_dotenv
 from pubvec.core.vector_store import VectorStore
 from datetime import datetime
+import logging
+from pubvec.utils.logging_utils import log_llm_request, log_llm_response
 
 load_dotenv()
 
 app = FastAPI(title="PubMed Vector Search API")
+
+# Configure logger
+logger = logging.getLogger("pubvec.core.api")
 
 class SearchQuery(BaseModel):
     query: str = Field(..., description="The search query")
@@ -67,6 +72,9 @@ When responding, please keep the following points in mind:
 # The query is:
 {query}"""
 
+    # Log the full prompt being sent to the LLM
+    log_llm_request(logger, prompt, model="deepseek-reasoner", additional_info={"query": query})
+
     response = requests.post(
         "https://api.deepseek.com/v1/chat/completions",
         headers=headers,
@@ -77,11 +85,15 @@ When responding, please keep the following points in mind:
     )
     
     if response.status_code != 200:
+        logger.error(f"Error querying DeepSeek API: {response.status_code}, {response.text}")
         raise HTTPException(status_code=500, detail="Error querying DeepSeek API")
     
     response_data = response.json()
     content = response_data["choices"][0]["message"]["content"]
     reasoning = response_data["choices"][0]["message"].get("reasoning_content")
+    
+    # Log the full response from the LLM
+    log_llm_response(logger, content, model="deepseek-reasoner", reasoning=reasoning)
     
     return {
         "reasoning": reasoning,
