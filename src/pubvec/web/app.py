@@ -307,10 +307,12 @@ async def get_entity_summary(entity: str, query: str, base_url: str, api_key: st
         
         # Create context from articles
         context = "\n\n".join([
-            f"[Article {i+1} begin]\nTitle: {article['metadata']['title']}\n"
-            f"Year: {article['metadata']['year']}\n"
+            f"[Article {i+1} begin]\n"
             f"PMID: {article['id']}\n"
-            f"Abstract: {article['document'].split('Abstract: ')[-1]}\n"
+            f"Journal: {article['metadata'].get('journal', 'Unknown')}\n"
+            f"Year: {article['metadata'].get('publication_date', 'Unknown')}\n"
+            f"Authors: {article['metadata'].get('authors', 'Unknown')}\n"
+            f"Document: {article['document']}\n"
             f"[Article {i+1} end]"
             for i, article in enumerate(articles)
         ])
