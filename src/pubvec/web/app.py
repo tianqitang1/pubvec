@@ -144,14 +144,31 @@ async def extract_entities(query: str, base_url: str, api_key: str) -> List[str]
     logger.info("Extracting entities from query")
     
     prompt = f"""
-    Extract all alleles, genes, or drugs mentioned in the following query. 
-    Return only a JSON array of strings with no additional text.
-    
-    Query: {query}
-    
-    Example output format:
-    ["BRCA1", "TP53", "Tamoxifen"]
-    """
+You are a biomedical entity extractor. 
+Extract all mentioned alleles, genes, and drugs from the following query.
+Return ONLY a JSON array of strings containing the extracted entities. 
+If no entities are found, return an empty array.
+
+Query: {query}
+
+Example output format:
+```json
+["BRCA1", "TP53", "Tamoxifen"]
+```
+
+Example:
+Query: "Rank olaparib, niraparib, rucaparib, and talazoparib for triple-negative breast cancer"
+Output: 
+```json
+["olaparib", "niraparib", "rucaparib", "talazoparib"]
+```
+
+Query: "Rank the efficacy of BRCA1, TP53, and Tamoxifen for HER2-positive breast cancer"
+Output: 
+```json
+["BRCA1", "TP53", "Tamoxifen"]
+```
+"""
     
     try:
         response = requests.post(
@@ -231,8 +248,11 @@ Return the result as a JSON object with two fields: 'disease' and 'disease_subty
 
 Query: {query}
 
+Example output format:
+{{"disease": "breast cancer", "disease_subtype": "triple-negative"}}
+
 Example:
-Query: "Rank olaparib, niraparib, and talazoparib for triple-negative breast cancer"
+Query: "Rank olaparib, niraparib, rucaparib, and talazoparib for triple-negative breast cancer"
 Output: {{"disease": "breast cancer", "disease_subtype": "triple-negative"}}
 
 Query: "Rank the efficacy of BRCA1, TP53, and Tamoxifen for HER2-positive breast cancer"

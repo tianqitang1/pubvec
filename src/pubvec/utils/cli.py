@@ -87,9 +87,22 @@ If no entities are found, return an empty array.
 
 Query: {query}
 
-Output format:
+Example output format:
 ```json
-["entity1", "entity2", ...]
+["BRCA1", "TP53", "Tamoxifen"]
+```
+
+Example:
+Query: "Rank olaparib, niraparib, rucaparib, and talazoparib for triple-negative breast cancer"
+Output: 
+```json
+["olaparib", "niraparib", "rucaparib", "talazoparib"]
+```
+
+Query: "Rank the efficacy of BRCA1, TP53, and Tamoxifen for HER2-positive breast cancer"
+Output: 
+```json
+["BRCA1", "TP53", "Tamoxifen"]
 ```
 """
     
@@ -113,12 +126,25 @@ async def extract_disease_subtype(query: str, base_url: str, api_key: str) -> Di
 Extract the disease and its subtype (organ, subtype, stage, etc.) from the query.
 Return the result as a JSON object with two fields: 'disease' and 'disease_subtype'.
 
+Query:{query}
+
+Example output format:
+```json
+{{"disease": "disease name", "disease_subtype": "disease subtype"}}
+```
+
 Example:
 Query: "Rank olaparib, niraparib, and talazoparib for triple-negative breast cancer"
-Output: {"disease": "breast cancer", "disease_subtype": "triple-negative"}
+Output: 
+```json
+{{"disease": "breast cancer", "disease_subtype": "triple-negative"}}
+```
 
 Query: "Rank the efficacy of BRCA1, TP53, and Tamoxifen for HER2-positive breast cancer"
-Output: {"disease": "breast cancer", "disease_subtype": "HER2-positive"}
+Output: 
+```json
+{{"disease": "breast cancer", "disease_subtype": "HER2-positive"}}
+```
     """
     
     try:
