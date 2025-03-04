@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PubVec - Biomedical Entity Ranker</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f8f9fa;
+            padding-top: 20px;
+        }
+        .container {
+            max-width: 1000px;
+            background-color: white;
+            border-radius: 10px;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.1);
+            padding: 30px;
+            margin-bottom: 30px;
+        }
+        h1, h2, h3 {
+            color: #2c3e50;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+        }
+        h1 {
+            border-bottom: 2px solid #eee;
+        }
+        .form-label {
+            font-weight: 600;
+            color: #34495e;
+        }
+        .btn-primary {
+            background-color: #3498db;
+            border-color: #3498db;
+        }
+        .btn-primary:hover {
+            background-color: #2980b9;
+            border-color: #2980b9;
+        }
+        .card {
+            margin-bottom: 20px;
+            border: none;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+        .card-header {
+            background-color: #f1f8ff;
+            font-weight: 600;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .efficacy-score {
+            font-size: 1.2rem;
+            font-weight: bold;
+            padding: 5px 10px;
+            border-radius: 5px;
+            color: white;
+        }
+        .loading {
+            display: none;
+            text-align: center;
+            margin: 20px 0;
+        }
+        .spinner-border {
+            width: 3rem;
+            height: 3rem;
+        }
+        #results-container, #intermediate-results {
+            display: none;
+        }
+        .score-high {
+            background-color: #27ae60;
+        }
+        .score-medium {
+            background-color: #f39c12;
+        }
+        .score-low {
+            background-color: #e74c3c;
+        }
+        .api-settings {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .api-toggle {
+            cursor: pointer;
+            color: #3498db;
+        }
+        #api-settings-fields {
+            display: none;
+        }
+        .debug-info {
+            background-color: #f8f9fa;
+            border-radius: 5px;
+            padding: 15px;
+            margin-top: 20px;
+            font-family: monospace;
+            font-size: 0.9rem;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .step-indicator {
+            font-size: 0.9rem;
+            color: #7f8c8d;
+            margin-bottom: 5px;
+        }
+        .step-content {
+            background-color: #f9f9f9;
+            border-left: 3px solid #3498db;
+            padding: 10px;
+            margin-bottom: 15px;
+            border-radius: 0 5px 5px 0;
+        }
+        .processing-step {
+            margin-bottom: 20px;
+        }
+        .form-check {
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="text-center">PubVec - Biomedical Entity Ranker</h1>
+        <p class="lead text-center mb-4">
+            Enter a query about alleles, genes, or drugs in the context of a specific disease and tissue type.
+            The system will extract entities, search PubMed, and rank them by efficacy.
+        </p>
+
+        <form id="query-form">
+            <div class="mb-4">
+                <label for="query" class="form-label">Query</label>
+                <textarea class="form-control" id="query" rows="3" placeholder="Example: Rank the efficacy of BRCA1, TP53, and Tamoxifen for HER2-positive breast cancer" required></textarea>
+                <div class="form-text">Include the entities (alleles/genes/drugs), disease, and tissue/type in your query.</div>
+            </div>
+
+            <div class="api-settings">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span class="api-toggle" onclick="toggleApiSettings()">
+                        <i class="bi bi-gear"></i> API Settings
+                    </span>
+                    <span id="api-status" class="badge bg-secondary">Not Connected</span>
+                </div>
+                
+                <div id="api-settings-fields">
+                    <div class="mb-3">
+                        <label for="base-url" class="form-label">API Base URL</label>
+                        <input type="url" class="form-control" id="base-url" placeholder="https://api.deepseek.com" value="https://api.deepseek.com" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="api-key" class="form-label">API Key</label>
+                        <input type="password" class="form-control" id="api-key" placeholder="Enter your API key" required>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="debug-mode">
+                        <label class="form-check-label" for="debug-mode">
+                            Debug Mode (Show detailed information and logs)
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <div class="d-grid gap-2">
+                <button type="submit" class="btn btn-primary btn-lg">Process Query</button>
+            </div>
+        </form>
+
+        <div class="loading mt-4">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2">Processing your query. This may take a minute...</p>
+            <div id="processing-steps"></div>
+        </div>
+
+        <div id="intermediate-results" class="mt-4">
+            <h2>Processing Steps</h2>
+            
+            <div class="processing-step">
+                <h3>Step 1: Entity Extraction</h3>
+                <div class="step-indicator">Extracted entities (alleles/genes/drugs):</div>
+                <div id="extracted-entities" class="step-content"></div>
+            </div>
+            
+            <div class="processing-step">
+                <h3>Step 2: Disease and Tissue Identification</h3>
+                <div class="step-indicator">Identified disease and tissue type:</div>
+                <div id="disease-tissue" class="step-content"></div>
+            </div>
+            
+            <div class="processing-step">
+                <h3>Step 3: Entity Summaries</h3>
+                <div class="step-indicator">Generated summaries for each entity:</div>
+                <div id="entity-summaries" class="step-content"></div>
+            </div>
+        </div>
+
+        <div id="results-container" class="mt-4">
+            <h2>Final Results</h2>
+            <p id="original-query" class="fst-italic mb-4"></p>
+            <div id="entities-list"></div>
+            
+            <div id="debug-container" class="mt-4" style="display: none;">
+                <h3>Debug Information</h3>
+                <div class="debug-info">
+                    <pre id="debug-content"></pre>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Toggle API settings visibility
+        function toggleApiSettings() {
+            const apiSettingsFields = document.getElementById('api-settings-fields');
+            apiSettingsFields.style.display = apiSettingsFields.style.display === 'none' ? 'block' : 'none';
+        }
+
+        // Get score class based on value
+        function getScoreClass(score) {
+            if (score >= 7) return 'score-high';
+            if (score >= 4) return 'score-medium';
+            return 'score-low';
+        }
+
+        // Display a processing step
+        function updateProcessingStep(stepId, message) {
+            const processingSteps = document.getElementById('processing-steps');
+            let stepElement = document.getElementById(`processing-step-${stepId}`);
+            
+            if (!stepElement) {
+                stepElement = document.createElement('div');
+                stepElement.id = `processing-step-${stepId}`;
+                stepElement.className = 'mt-2';
+                processingSteps.appendChild(stepElement);
+            }
+            
+            stepElement.innerHTML = `<div class="text-start">${message}</div>`;
+        }
+
+        // Format entities list for display
+        function formatEntitiesList(entities) {
+            if (!entities || entities.length === 0) return "No entities found";
+            return entities.map(entity => `<span class="badge bg-info me-2 mb-2">${entity}</span>`).join('');
+        }
+
+        // Format disease and tissue for display
+        function formatDiseaseTissue(diseaseInfo) {
+            return `
+                <div><strong>Disease:</strong> ${diseaseInfo.disease || 'Not specified'}</div>
+                <div><strong>Tissue/Type:</strong> ${diseaseInfo.tissue || 'Not specified'}</div>
+            `;
+        }
+
+        // Format entity summaries for display
+        function formatEntitySummaries(summaries) {
+            if (!summaries || summaries.length === 0) return "No summaries generated";
+            
+            return summaries.map(item => `
+                <div class="mb-3">
+                    <div class="fw-bold">${item.name}</div>
+                    <div class="small">${item.summary}</div>
+                </div>
+            `).join('');
+        }
+
+        // Handle form submission
+        document.getElementById('query-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const query = document.getElementById('query').value;
+            const baseUrl = document.getElementById('base-url').value;
+            const apiKey = document.getElementById('api-key').value;
+            const debugMode = document.getElementById('debug-mode').checked;
+            
+            if (!query || !baseUrl || !apiKey) {
+                alert('Please fill in all required fields');
+                return;
+            }
+            
+            // Reset UI
+            document.getElementById('processing-steps').innerHTML = '';
+            document.getElementById('intermediate-results').style.display = 'none';
+            document.getElementById('results-container').style.display = 'none';
+            document.getElementById('debug-container').style.display = 'none';
+            
+            // Show loading spinner
+            document.querySelector('.loading').style.display = 'block';
+            
+            try {
+                // Update processing step
+                updateProcessingStep(1, 'Starting query processing...');
+                
+                const response = await fetch('/process_query', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        query: query,
+                        base_url: baseUrl,
+                        api_key: apiKey,
+                        debug_mode: debugMode
+                    }),
+                });
+                
+                if (!response.ok) {
+                    let errorMessage = 'An error occurred';
+                    try {
+                        const errorData = await response.json();
+                        errorMessage = errorData.detail || errorMessage;
+                        
+                        // If in debug mode and the error is a JSON string, parse and format it
+                        if (debugMode && typeof errorMessage === 'string' && errorMessage.startsWith('{')) {
+                            const errorObj = JSON.parse(errorMessage);
+                            document.getElementById('debug-content').textContent = 
+                                `Error Message: ${errorObj.error_message}\n\nTraceback:\n${errorObj.traceback}`;
+                            document.getElementById('debug-container').style.display = 'block';
+                        }
+                    } catch (parseError) {
+                        console.error('Error parsing error response:', parseError);
+                    }
+                    
+                    throw new Error(errorMessage);
+                }
+                
+                updateProcessingStep(5, 'Processing complete, rendering results...');
+                
+                const data = await response.json();
+                console.log('Response data:', data);
+                
+                // Update API status
+                document.getElementById('api-status').className = 'badge bg-success';
+                document.getElementById('api-status').textContent = 'Connected';
+                
+                // Display intermediate results if debug info is available
+                if (data.debug_info) {
+                    // Display extracted entities
+                    if (data.debug_info.extracted_entities) {
+                        document.getElementById('extracted-entities').innerHTML = 
+                            formatEntitiesList(data.debug_info.extracted_entities);
+                    }
+                    
+                    // Display disease and tissue information
+                    if (data.debug_info.disease_tissue) {
+                        document.getElementById('disease-tissue').innerHTML = 
+                            formatDiseaseTissue(data.debug_info.disease_tissue);
+                    }
+                    
+                    // Display entity summaries
+                    if (data.debug_info.entity_summaries) {
+                        document.getElementById('entity-summaries').innerHTML = 
+                            formatEntitySummaries(data.debug_info.entity_summaries);
+                    }
+                    
+                    // Show intermediate results
+                    document.getElementById('intermediate-results').style.display = 'block';
+                    
+                    // Display debug info
+                    if (debugMode) {
+                        document.getElementById('debug-content').textContent = JSON.stringify(data.debug_info, null, 2);
+                        document.getElementById('debug-container').style.display = 'block';
+                    }
+                }
+                
+                // Display final results
+                document.getElementById('original-query').textContent = `Query: "${data.original_query}"`;
+                
+                const entitiesList = document.getElementById('entities-list');
+                entitiesList.innerHTML = '';
+                
+                data.entities.forEach((entity, index) => {
+                    const card = document.createElement('div');
+                    card.className = 'card mb-3';
+                    
+                    const scoreClass = getScoreClass(entity.efficacy_score);
+                    
+                    card.innerHTML = `
+                        <div class="card-header">
+                            <span>${index + 1}. ${entity.name}</span>
+                            <span class="efficacy-score ${scoreClass}">Score: ${entity.efficacy_score.toFixed(1)}</span>
+                        </div>
+                        <div class="card-body">
+                            <p class="card-text">${entity.summary}</p>
+                        </div>
+                    `;
+                    
+                    entitiesList.appendChild(card);
+                });
+                
+                // Show results
+                document.getElementById('results-container').style.display = 'block';
+            } catch (error) {
+                alert('Error: ' + error.message);
+                console.error('Error:', error);
+                
+                // Update API status on error
+                document.getElementById('api-status').className = 'badge bg-danger';
+                document.getElementById('api-status').textContent = 'Error';
+            } finally {
+                // Hide loading spinner
+                document.querySelector('.loading').style.display = 'none';
+            }
+        });
+
+        // Show API settings by default
+        document.addEventListener('DOMContentLoaded', function() {
+            toggleApiSettings();
+        });
+    </script>
+</body>
+</html> 

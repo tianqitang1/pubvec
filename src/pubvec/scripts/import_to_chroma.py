@@ -7,9 +7,6 @@ import sys
 import json
 import torch
 import time
-import cProfile
-import pstats
-import io
 from typing import List, Dict, Generator
 import argparse
 from pathlib import Path
@@ -83,15 +80,6 @@ class PubMedChromaImporter:
         
         # Initialize total article count
         self._calculate_total_articles()
-        
-        # Profiling data
-        self.profiling_data = {
-            "db_fetch_time": 0,
-            "embedding_time": 0,
-            "chroma_add_time": 0,
-            "batch_count": 0,
-            "total_docs": 0,
-        }
     
     def _calculate_total_articles(self):
         """Calculate the total number of articles in the database."""
@@ -194,8 +182,6 @@ class PubMedChromaImporter:
             
             for batch in self._get_article_batches():
                 # Prepare data for ChromaDB
-                batch_start_time = time.time()
-                
                 ids = []
                 documents = []
                 metadatas = []
@@ -219,55 +205,17 @@ class PubMedChromaImporter:
                     documents.append(doc_text)
                     metadatas.append(metadata)
                 
-                data_prep_time = time.time() - batch_start_time
-                
                 # Add to ChromaDB
                 try:
-                    # Track memory usage before embedding
-                    if self.use_gpu and torch.cuda.is_available():
-                        before_gpu_mem = torch.cuda.memory_allocated() / (1024 ** 2)  # MB
-                    
-                    # Time the actual embedding and adding to ChromaDB
-                    embedding_start = time.time()
                     self.collection.add(
                         ids=ids,
                         documents=documents,
                         metadatas=metadatas
                     )
-                    embedding_time = time.time() - embedding_start
-                    
-                    # Track memory after embedding
-                    if self.use_gpu and torch.cuda.is_available():
-                        after_gpu_mem = torch.cuda.memory_allocated() / (1024 ** 2)  # MB
-                        gpu_mem_diff = after_gpu_mem - before_gpu_mem
-                        logging.info(f"Batch size: {len(ids)}, GPU memory change: {gpu_mem_diff:.2f} MB")
-                    
-                    # Update profiling data
-                    self.profiling_data["embedding_time"] += embedding_time
-                    self.profiling_data["batch_count"] += 1
-                    self.profiling_data["total_docs"] += len(ids)
-                    
-                    # Log performance metrics
-                    docs_per_second = len(ids) / embedding_time if embedding_time > 0 else 0
-                    logging.info(f"Batch processing: {len(ids)} docs in {embedding_time:.2f}s ({docs_per_second:.2f} docs/s)")
-                    logging.info(f"Data prep time: {data_prep_time:.2f}s, Embedding time: {embedding_time:.2f}s")
-                    
                     total_imported += len(ids)
                 except Exception as e:
                     logging.error(f"Error adding batch to ChromaDB: {str(e)}")
                     total_skipped += len(ids)
-            
-            # Print profiling summary
-            if self.profiling_data["batch_count"] > 0:
-                avg_embedding_time = self.profiling_data["embedding_time"] / self.profiling_data["batch_count"]
-                avg_docs_per_batch = self.profiling_data["total_docs"] / self.profiling_data["batch_count"]
-                logging.info("=== Profiling Summary ===")
-                logging.info(f"Total batches processed: {self.profiling_data['batch_count']}")
-                logging.info(f"Total documents processed: {self.profiling_data['total_docs']}")
-                logging.info(f"Average embedding time per batch: {avg_embedding_time:.2f}s")
-                logging.info(f"Average docs per batch: {avg_docs_per_batch:.2f}")
-                if avg_embedding_time > 0:
-                    logging.info(f"Average throughput: {avg_docs_per_batch / avg_embedding_time:.2f} docs/s")
             
             # Clear checkpoint file after successful completion
             if self.checkpoint_file.exists():
@@ -301,8 +249,6 @@ def main():
                        help="Resume from last checkpoint if available")
     parser.add_argument("--reset", action="store_true", 
                        help="Reset checkpoint and start from beginning")
-    parser.add_argument("--profile", action="store_true",
-                       help="Run profiling on the script")
     
     args = parser.parse_args()
     
@@ -324,37 +270,15 @@ def main():
             args.checkpoint_file.unlink()
             logging.info("Checkpoint reset, starting from beginning")
         
-        if args.profile:
-            # Run with profiling
-            pr = cProfile.Profile()
-            pr.enable()
-            
-            importer = PubMedChromaImporter(
-                sqlite_path=args.sqlite_path,
-                persist_dir=args.persist_dir,
-                batch_size=args.batch_size,
-                checkpoint_file=args.checkpoint_file,
-                use_gpu=args.use_gpu
-            )
-            
-            importer.import_articles()
-            
-            pr.disable()
-            s = io.StringIO()
-            ps = pstats.Stats(pr, stream=s).sort_stats('cumulative')
-            ps.print_stats(30)  # Print top 30 functions by time
-            logging.info(f"\n==== Profiling Results ====\n{s.getvalue()}")
-        else:
-            # Run normally
-            importer = PubMedChromaImporter(
-                sqlite_path=args.sqlite_path,
-                persist_dir=args.persist_dir,
-                batch_size=args.batch_size,
-                checkpoint_file=args.checkpoint_file,
-                use_gpu=args.use_gpu
-            )
-            
-            importer.import_articles()
+        importer = PubMedChromaImporter(
+            sqlite_path=args.sqlite_path,
+            persist_dir=args.persist_dir,
+            batch_size=args.batch_size,
+            checkpoint_file=args.checkpoint_file,
+            use_gpu=args.use_gpu
+        )
+        
+        importer.import_articles()
     except FileNotFoundError as e:
         logging.error(str(e))
         logging.error("\nTo download PubMed data and create the database, run:")

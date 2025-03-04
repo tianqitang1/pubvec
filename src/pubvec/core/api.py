@@ -5,7 +5,7 @@ import requests
 from functools import lru_cache
 import os
 from dotenv import load_dotenv
-from vector_store import VectorStore
+from pubvec.core.vector_store import VectorStore
 from datetime import datetime
 
 load_dotenv()

@@ -9,7 +9,7 @@ import chromadb.api.types
 chromadb.api.types.ImageDType = np.float64
 
 class VectorStore:
-    def __init__(self, persist_dir: str = "./chroma_db"):
+    def __init__(self, persist_dir: str = "./data/chroma_db"):
         """Initialize vector store with BGE-M3 embeddings."""
         self.persist_dir = persist_dir
         self.embedding_function = embedding_functions.SentenceTransformerEmbeddingFunction(
