@@ -2,17 +2,30 @@ import json
 import asyncio
 import logging
 import traceback
+import os
+import datetime
 from typing import List, Dict, Any, Optional
 import requests
 
 from pubvec.core.vector_store import VectorStore
 from pubvec.core.api import query_deepseek
+from pubvec.utils.logging_utils import log_llm_request, log_llm_response
+
+# Create logs directory if it doesn't exist
+os.makedirs("logs", exist_ok=True)
+
+# Get current datetime for log filename
+current_time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+log_filename = f"logs/{current_time}_cli.log"
 
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler()]
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler(log_filename)
+    ]
 )
 logger = logging.getLogger("pubvec-cli")
 
@@ -32,6 +45,9 @@ async def call_llm_api(prompt: str, base_url: str, api_key: str, model: str = "d
         "Content-Type": "application/json"
     }
     
+    # Log the full prompt being sent to the LLM
+    log_llm_request(logger, prompt, model=model)
+    
     try:
         response = requests.post(
             f"{base_url}/v1/chat/completions",
@@ -47,7 +63,12 @@ async def call_llm_api(prompt: str, base_url: str, api_key: str, model: str = "d
             raise Exception(f"Error calling LLM API: {response.status_code}, {response.text}")
         
         response_data = response.json()
-        return response_data["choices"][0]["message"]["content"]
+        content = response_data["choices"][0]["message"]["content"]
+        
+        # Log the full response from the LLM
+        log_llm_response(logger, content, model=model)
+        
+        return content
     except Exception as e:
         logger.error(f"Error in call_llm_api: {str(e)}")
         raise
@@ -203,23 +224,40 @@ async def get_entity_summary(entity: str, query: str, base_url: str, api_key: st
             for i, article in enumerate(articles)
         ])
         
-        # Create prompt for entity efficacy
-        prompt = f"""
+        # Create complete prompt including context and instructions
+        prompt = f"""# The following contents are PubMed articles related to {entity} for {disease} {subtype}:
+{context}
+
+In the search results provided, each article is formatted as [Article X begin]...[Article X end], where X represents the numerical index of each PubMed article. Please cite the articles at the end of the relevant sentence when appropriate. Use the citation format [PMID:X] in the corresponding part of your answer. If a statement is derived from multiple articles, list all relevant PMIDs, such as [PMID:3][PMID:5].
+
 Based on the provided PubMed articles, summarize the efficacy of {entity} 
 for {disease} in {subtype} type.
-Focus specifically on:
-1. Evidence of effectiveness
-2. Mechanism of action
-3. Any limitations or side effects
-4. Comparison with other treatments (if mentioned)
 
+When responding, please keep the following points in mind:
+- Today is {datetime.now().strftime('%Y-%m-%d')}.
+- Focus on synthesizing information from multiple articles to provide a comprehensive answer.
+- Evaluate the scientific relevance and recency of each article to the query.
+- For systematic reviews or meta-analyses, prioritize these as they provide higher-level evidence.
+- When discussing research findings:
+  * Note the study design (e.g., clinical trial, observational study)
+  * Mention sample sizes when relevant
+  * Highlight statistical significance if reported
+  * Note any limitations mentioned in the articles
+- For treatment-related queries, include information about:
+  * Efficacy data
+  * Safety profiles
+  * Patient selection criteria
+  * Comparison with standard of care
+- If multiple treatment approaches or methodologies are discussed, compare and contrast them.
+- When citing statistics or specific findings, always include the PMID citation.
+- If the articles present conflicting findings, acknowledge this and explain the different perspectives.
+- For technical or methodological details, provide sufficient context for clarity.
 Provide a concise summary (200-300 words).
 """
         
-        # Use the query_deepseek function from api.py
+        # Use call_llm_api directly instead of query_deepseek
         logger.info(f"Generating summary for {entity}")
-        deepseek_response = await query_deepseek(prompt, api_key, context)
-        summary = deepseek_response["response"]
+        summary = await call_llm_api(prompt, base_url, api_key, model)
         
         return summary
     except Exception as e:
