@@ -1,4 +1,4 @@
-# PubMed Ranking (pubvec)
+# PubMed Vectorized Ranking (pubvec)
 
 A multi-agent system that helps biomedical researchers rank the efficacy of alleles, genes, or drugs for specific diseases and tissue/types using PubMed data and LLM technology.
 
