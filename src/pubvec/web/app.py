@@ -60,7 +60,7 @@ class Entity(BaseModel):
 
 class DiseaseInfo(BaseModel):
     disease: str
-    tissue: str
+    disease_subtype: str
 
 class RankResponse(BaseModel):
     entities: List[Entity]
@@ -92,20 +92,20 @@ async def process_query(request: RankRequest):
         if request.debug_mode:
             debug_info["extracted_entities"] = entities
         
-        # Step 2: Extract disease and tissue information
-        logger.info("Step 2: Extracting disease and tissue information")
-        disease_tissue = await extract_disease_tissue(request.query, request.base_url, request.api_key)
-        logger.info(f"Extracted disease info: {disease_tissue}")
+        # Step 2: Extract disease and type information
+        logger.info("Step 2: Extracting disease and subtype information")
+        disease_info = await extract_disease_subtype(request.query, request.base_url, request.api_key)
+        logger.info(f"Extracted disease info: {disease_info}")
         
         if request.debug_mode:
-            debug_info["disease_tissue"] = disease_tissue
+            debug_info["disease_info"] = disease_info
         
         # Step 3: For each entity, query PubMed and get efficacy summary
         logger.info("Step 3: Getting entity summaries")
         entity_summaries = []
         for entity in entities:
             logger.info(f"Getting summary for entity: {entity}")
-            summary = await get_entity_summary(entity, request.query, request.base_url, request.api_key, disease_tissue)
+            summary = await get_entity_summary(entity, request.query, request.base_url, request.api_key, disease_info)
             entity_summaries.append({"name": entity, "summary": summary})
             logger.info(f"Summary for {entity} retrieved (length: {len(summary)})")
         
@@ -220,23 +220,24 @@ def extract_json_from_llm_response(content: str) -> str:
         # No code block found, return original content
         return content
 
-async def extract_disease_tissue(query: str, base_url: str, api_key: str) -> Dict[str, str]:
+async def extract_disease_subtype(query: str, base_url: str, api_key: str) -> Dict[str, str]:
     """
-    Extract disease and tissue/type information from the user query.
+    Extract the disease and its subtype from the query using LLM.
     """
-    logger.info("Extracting disease and tissue information")
-    
-    prompt = f"""
-    Extract the disease and tissue/type mentioned in the following query.
-    Return only a JSON object with "disease" and "tissue" keys, with no additional text.
-    
-    Query: {query}
-    
-    Example output format:
-    {{"disease": "breast cancer", "tissue": "HER2-positive"}}
-    """
-    
     try:
+        prompt = f"""
+Extract the disease and its subtype (organ, subtype, stage, etc.) from the query.
+Return the result as a JSON object with two fields: 'disease' and 'disease_subtype'.
+
+Query: {query}
+
+Example:
+Query: "Rank olaparib, niraparib, and talazoparib for triple-negative breast cancer"
+Output: {{"disease": "breast cancer", "disease_subtype": "triple-negative"}}
+
+Query: "Rank the efficacy of BRCA1, TP53, and Tamoxifen for HER2-positive breast cancer"
+Output: {{"disease": "breast cancer", "disease_subtype": "HER2-positive"}}
+"""
         response = requests.post(
             f"{base_url}/v1/chat/completions",
             headers={
@@ -267,21 +268,24 @@ async def extract_disease_tissue(query: str, base_url: str, api_key: str) -> Dic
             # Ensure all required keys are present
             if "disease" not in result:
                 result["disease"] = ""
-            if "tissue" not in result:
-                result["tissue"] = ""
+            if "disease_subtype" not in result or "type" in result:
+                # Handle both new and old format responses
+                result["disease_subtype"] = result.get("type", "")
+                if "type" in result:
+                    del result["type"]
                 
         except Exception as e:
             logger.warning(f"Failed to parse disease JSON: {str(e)}")
             # If parsing fails, use default values
-            result = {"disease": "", "tissue": ""}
+            result = {"disease": "", "disease_subtype": ""}
         
         return result
     except Exception as e:
-        logger.error(f"Error in extract_disease_tissue: {str(e)}")
+        logger.error(f"Error in extract_disease_subtype: {str(e)}")
         logger.error(traceback.format_exc())
         raise
 
-async def get_entity_summary(entity: str, query: str, base_url: str, api_key: str, disease_tissue: Dict[str, str] = None) -> str:
+async def get_entity_summary(entity: str, query: str, base_url: str, api_key: str, disease_info: Dict[str, str] = None) -> str:
     """
     Query PubMed for articles about the entity in the context of the user's query,
     and generate a summary about its efficacy.
@@ -291,12 +295,12 @@ async def get_entity_summary(entity: str, query: str, base_url: str, api_key: st
     try:
         from pubvec.core.vector_store import VectorStore
         
-        # Use provided disease_tissue info or extract it if not provided
-        if disease_tissue is None:
-            disease_tissue = await extract_disease_tissue(query, base_url, api_key)
+        # Use provided disease_info or extract it if not provided
+        if disease_info is None:
+            disease_info = await extract_disease_subtype(query, base_url, api_key)
         
         # Construct a specific query for this entity
-        entity_query = f"{entity} {disease_tissue['disease']} {disease_tissue['tissue']}"
+        entity_query = f"{entity} {disease_info['disease']} {disease_info['disease_subtype']}"
         logger.info(f"Constructed entity query: {entity_query}")
         
         # Search for relevant articles
@@ -320,7 +324,7 @@ async def get_entity_summary(entity: str, query: str, base_url: str, api_key: st
         # Generate summary using DeepSeek
         prompt = f"""
         Based on the provided PubMed articles, summarize the efficacy of {entity} 
-        for {disease_tissue['disease']} in {disease_tissue['tissue']} tissue/type.
+        for {disease_info['disease']} in {disease_info['disease_subtype']} type.
         Focus specifically on:
         1. Evidence of effectiveness
         2. Mechanism of action

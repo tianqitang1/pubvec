@@ -24,7 +24,7 @@ def main():
     
     # Rank command
     rank_parser = subparsers.add_parser("rank", help="Rank entities from a query based on efficacy from PubMed")
-    rank_parser.add_argument("query", help="The natural language query containing entities, disease, and tissue")
+    rank_parser.add_argument("query", help="The natural language query containing entities, disease, and type")
     rank_parser.add_argument("--cheap", action="store_true", help="Use cheaper deepseek-chat model instead of deepseek-reasoner")
     rank_parser.add_argument("--debug", action="store_true", help="Enable debug mode with detailed logs")
     rank_parser.add_argument("--output", help="Output file to save results (JSON format)")

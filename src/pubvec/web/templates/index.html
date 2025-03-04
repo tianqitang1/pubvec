@@ -126,7 +126,7 @@
     <div class="container">
         <h1 class="text-center">PubVec - Biomedical Entity Ranker</h1>
         <p class="lead text-center mb-4">
-            Enter a query about alleles, genes, or drugs in the context of a specific disease and tissue type.
+            Enter a query about alleles, genes, or drugs in the context of a specific disease and subtype.
             The system will extract entities, search PubMed, and rank them by efficacy.
         </p>
 
@@ -134,7 +134,7 @@
             <div class="mb-4">
                 <label for="query" class="form-label">Query</label>
                 <textarea class="form-control" id="query" rows="3" placeholder="Example: Rank the efficacy of BRCA1, TP53, and Tamoxifen for HER2-positive breast cancer" required></textarea>
-                <div class="form-text">Include the entities (alleles/genes/drugs), disease, and tissue/type in your query.</div>
+                <div class="form-text">Include the entities (alleles/genes/drugs), disease, and subtype in your query.</div>
             </div>
 
             <div class="api-settings">
@@ -186,9 +186,9 @@
             </div>
             
             <div class="processing-step">
-                <h3>Step 2: Disease and Tissue Identification</h3>
-                <div class="step-indicator">Identified disease and tissue type:</div>
-                <div id="disease-tissue" class="step-content"></div>
+                <h3>Step 2: Disease and Subtype Identification</h3>
+                <div class="step-indicator">Identified disease and subtype:</div>
+                <div id="disease-info" class="step-content"></div>
             </div>
             
             <div class="processing-step">
@@ -247,11 +247,11 @@
             return entities.map(entity => `<span class="badge bg-info me-2 mb-2">${entity}</span>`).join('');
         }
 
-        // Format disease and tissue for display
-        function formatDiseaseTissue(diseaseInfo) {
+        // Format disease and subtype for display
+        function formatDiseaseInfo(diseaseInfo) {
             return `
                 <div><strong>Disease:</strong> ${diseaseInfo.disease || 'Not specified'}</div>
-                <div><strong>Tissue/Type:</strong> ${diseaseInfo.tissue || 'Not specified'}</div>
+                <div><strong>Subtype:</strong> ${diseaseInfo.disease_subtype || 'Not specified'}</div>
             `;
         }
 
@@ -348,10 +348,10 @@
                             formatEntitiesList(data.debug_info.extracted_entities);
                     }
                     
-                    // Display disease and tissue information
-                    if (data.debug_info.disease_tissue) {
-                        document.getElementById('disease-tissue').innerHTML = 
-                            formatDiseaseTissue(data.debug_info.disease_tissue);
+                    // Display disease and subtype information
+                    if (data.debug_info.disease_info) {
+                        document.getElementById('disease-info').innerHTML = 
+                            formatDiseaseInfo(data.debug_info.disease_info);
                     }
                     
                     // Display entity summaries

@@ -105,65 +105,73 @@ Output format:
         logger.error(traceback.format_exc())
         raise
 
-async def extract_disease_tissue(query: str, base_url: str, api_key: str) -> Dict[str, str]:
-    """Extract disease and tissue information from the query."""
+async def extract_disease_subtype(query: str, base_url: str, api_key: str) -> Dict[str, str]:
+    """Extract the disease and its subtype from the query."""
+    logger.info("Extracting disease and subtype information")
+    
     prompt = f"""
-You are a biomedical entity extractor specialized in diseases and tissues.
-From the following query, extract:
-1. The main disease mentioned
-2. The specific tissue or cell type context (if mentioned)
+Extract the disease and its subtype (organ, subtype, stage, etc.) from the query.
+Return the result as a JSON object with two fields: 'disease' and 'disease_subtype'.
 
-Return ONLY a JSON object with two keys: "disease" and "tissue".
-If a tissue is not specified, use a reasonable default based on the disease or general term like "various tissues".
+Example:
+Query: "Rank olaparib, niraparib, and talazoparib for triple-negative breast cancer"
+Output: {"disease": "breast cancer", "disease_subtype": "triple-negative"}
 
-Query: {query}
-
-Output format:
-```json
-{{
-  "disease": "extracted disease",
-  "tissue": "extracted tissue or cell type"
-}}
-```
-"""
+Query: "Rank the efficacy of BRCA1, TP53, and Tamoxifen for HER2-positive breast cancer"
+Output: {"disease": "breast cancer", "disease_subtype": "HER2-positive"}
+    """
     
     try:
         content = await call_llm_api(prompt, base_url, api_key)
-        json_content = extract_json_from_llm_response(content)
         
-        disease_tissue = json.loads(json_content)
-        logger.info(f"Extracted disease and tissue: {disease_tissue}")
-        return disease_tissue
+        try:
+            json_content = extract_json_from_llm_response(content)
+            result = json.loads(json_content)
+            
+            # Ensure all required keys are present
+            if "disease" not in result:
+                result["disease"] = ""
+            if "disease_subtype" not in result:
+                # Handle both new and old format responses
+                result["disease_subtype"] = result.get("type", "")
+                if "type" in result:
+                    del result["type"]
+                
+        except Exception as e:
+            logger.warning(f"Failed to parse disease JSON: {str(e)}")
+            # If parsing fails, use default values
+            result = {"disease": "", "disease_subtype": ""}
+        
+        return result
     except Exception as e:
-        logger.error(f"Error extracting disease and tissue: {str(e)}")
-        logger.error(traceback.format_exc())
-        raise
+        logger.error(f"Error extracting disease information: {str(e)}")
+        return {"disease": "", "disease_subtype": ""}
 
 async def get_entity_summary(entity: str, query: str, base_url: str, api_key: str, 
-                           disease_tissue: Dict[str, str], store: VectorStore, 
+                           disease_info: Dict[str, str], store: VectorStore, 
                            model: str, n_results: int = 5) -> str:
-    """Get summary about an entity's efficacy from PubMed articles."""
-    disease = disease_tissue.get("disease", "")
-    tissue = disease_tissue.get("tissue", "")
-    
+    """Generate a summary of an entity's efficacy from PubMed articles."""
     try:
         # Construct a specific query for this entity
-        entity_query = f"{entity} {disease} {tissue} efficacy"
-        logger.info(f"Searching PubMed for: {entity_query}")
+        disease = disease_info.get("disease", "")
+        subtype = disease_info.get("disease_subtype", "")
+        entity_query = f"{entity} {disease} {subtype}"
         
         # Search for relevant articles
-        articles = store.search(entity_query, n_results)
+        logger.info(f"Searching for articles about: {entity_query}")
+        articles = store.search(entity_query, n_results=n_results)
         
         if not articles:
-            logger.warning(f"No articles found for {entity} in {tissue} {disease}")
-            return f"No information found about {entity} in the context of {disease} in {tissue}."
+            logger.warning(f"No articles found for {entity}")
+            return f"No information found about {entity} for {disease} {subtype}."
         
-        # Create context from articles using safe access with .get()
+        # Create context from articles
         context = "\n\n".join([
             f"[Article {i+1} begin]\n"
             f"PMID: {article['id']}\n"
-            f"Title: {article['metadata'].get('title', 'Unknown')}\n"
-            f"Year: {article['metadata'].get('year', article['metadata'].get('publication_date', 'Unknown'))}\n"
+            f"Journal: {article['metadata'].get('journal', 'Unknown')}\n"
+            f"Year: {article['metadata'].get('publication_date', 'Unknown')}\n"
+            f"Authors: {article['metadata'].get('authors', 'Unknown')}\n"
             f"Document: {article['document']}\n"
             f"[Article {i+1} end]"
             for i, article in enumerate(articles)
@@ -172,7 +180,7 @@ async def get_entity_summary(entity: str, query: str, base_url: str, api_key: st
         # Create prompt for entity efficacy
         prompt = f"""
 Based on the provided PubMed articles, summarize the efficacy of {entity} 
-for {disease} in {tissue} tissue/type.
+for {disease} in {subtype} type.
 Focus specifically on:
 1. Evidence of effectiveness
 2. Mechanism of action
@@ -253,50 +261,51 @@ async def rank_entities(entity_summaries: List[Dict], query: str, base_url: str,
         raise
 
 async def process_query(query: str, api_key: str, base_url: str, model: str, debug: bool = False):
-    """Process a query to rank entities based on efficacy."""
+    """Process a natural language query and return ranked entities."""
+    logger.info(f"Processing query: {query}")
+    results = {
+        "original_query": query,
+        "entities": [],
+        "debug_info": {} if debug else None
+    }
+    
     try:
-        logger.info(f"Processing query: {query}")
-
+        # Step 1: Extract entities from query
+        logger.info("Extracting entities from query")
+        entities = await extract_entities(query, base_url, api_key)
+        logger.info(f"Extracted entities: {entities}")
+        
+        if debug:
+            results["debug_info"]["extracted_entities"] = entities
+        
+        # Step 2: Extract disease and subtype information
+        logger.info("Extracting disease and subtype information")
+        disease_info = await extract_disease_subtype(query, base_url, api_key)
+        logger.info(f"Extracted disease info: {disease_info}")
+        
+        if debug:
+            results["debug_info"]["disease_info"] = disease_info
+        
         # Initialize vector store
         store = VectorStore()
-
-        # Extract entities from query
-        entities = await extract_entities(query, base_url, api_key)
-        if not entities:
-            logger.warning("No entities found in query")
-            return {
-                "original_query": query,
-                "entities": [],
-                "debug_info": {"error": "No entities (genes/drugs/alleles) found in query"} if debug else None
-            }
-
-        # Extract disease and tissue information
-        disease_tissue = await extract_disease_tissue(query, base_url, api_key)
 
         # Get summaries for each entity
         entity_summaries = []
         for entity in entities:
             summary = await get_entity_summary(
-                entity, query, base_url, api_key, disease_tissue, store, model
+                entity, query, base_url, api_key, disease_info, store, model
             )
             entity_summaries.append({"entity": entity, "summary": summary})
 
         # Rank entities based on summaries
         ranked_entities = await rank_entities(entity_summaries, query, base_url, api_key)
 
-        result = {
-            "original_query": query,
-            "entities": ranked_entities,
-        }
+        results["entities"] = ranked_entities
 
         if debug:
-            result["debug_info"] = {
-                "extracted_entities": entities,
-                "disease_tissue": disease_tissue,
-                "entity_summaries": entity_summaries
-            }
+            results["debug_info"]["entity_summaries"] = entity_summaries
 
-        return result
+        return results
 
     except Exception as e:
         logger.error(f"Error processing query: {str(e)}")
