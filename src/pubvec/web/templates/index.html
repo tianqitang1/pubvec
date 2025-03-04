@@ -152,7 +152,7 @@
                     </div>
                     <div class="mb-3">
                         <label for="api-key" class="form-label">API Key</label>
-                        <input type="password" class="form-control" id="api-key" placeholder="Enter your API key" required>
+                        <input type="password" class="form-control" id="api-key" placeholder="Enter your API key" value="{{ prefilled_api_key }}" required>
                     </div>
                     <div class="form-check">
                         <input class="form-check-input" type="checkbox" id="debug-mode">
@@ -271,13 +271,17 @@
         document.getElementById('query-form').addEventListener('submit', async function(e) {
             e.preventDefault();
             
-            const query = document.getElementById('query').value;
+            // Get form values, using placeholder as default if empty
+            let query = document.getElementById('query').value;
+            if (!query) {
+                query = document.getElementById('query').placeholder;
+            }
             const baseUrl = document.getElementById('base-url').value;
             const apiKey = document.getElementById('api-key').value;
             const debugMode = document.getElementById('debug-mode').checked;
             
-            if (!query || !baseUrl || !apiKey) {
-                alert('Please fill in all required fields');
+            if (!baseUrl || !apiKey) {
+                alert('Please fill in API settings');
                 return;
             }
             

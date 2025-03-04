@@ -6,6 +6,7 @@ import os
 import sys
 import json
 import logging
+import re
 from typing import List, Dict, Optional, Any
 import requests
 from pydantic import BaseModel, Field
@@ -25,6 +26,15 @@ logger = logging.getLogger("pubvec.web")
 # Add the parent directory to sys.path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from pubvec.core.api import query_deepseek
+
+# Global variable to store the prefilled API key
+prefilled_api_key = None
+
+def initialize_api_key(api_key):
+    """Initialize the prefilled API key."""
+    global prefilled_api_key
+    prefilled_api_key = api_key
+    logger.info("API key prefilled from config file")
 
 app = FastAPI(title="PubVec - Biomedical Entity Ranker")
 
@@ -59,7 +69,10 @@ class RankResponse(BaseModel):
 
 @app.get("/", response_class=HTMLResponse)
 async def get_index(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse("index.html", {
+        "request": request,
+        "prefilled_api_key": prefilled_api_key or ""
+    })
 
 @app.post("/process_query", response_model=RankResponse)
 async def process_query(request: RankRequest):
@@ -160,16 +173,18 @@ async def extract_entities(query: str, base_url: str, api_key: str) -> List[str]
         content = response.json()["choices"][0]["message"]["content"]
         logger.info(f"LLM response for entity extraction: {content}")
         
+        # Process the content to extract JSON if it's wrapped in markdown
+        json_content = extract_json_from_llm_response(content)
+        
         # Parse the JSON array from the response
         try:
-            entities = json.loads(content)
+            entities = json.loads(json_content)
             if not isinstance(entities, list):
-                logger.warning(f"Unexpected format in entity extraction, not a list: {content}")
+                logger.warning(f"Unexpected format in entity extraction, not a list: {json_content}")
                 entities = []
         except Exception as e:
             logger.warning(f"Failed to parse JSON from LLM response: {str(e)}")
             # If parsing fails, try to extract entities using simple heuristics
-            import re
             logger.info("Attempting heuristic extraction")
             entities = re.findall(r'\[(.*?)\]', content)
             if entities:
@@ -188,6 +203,22 @@ async def extract_entities(query: str, base_url: str, api_key: str) -> List[str]
         logger.error(f"Error in extract_entities: {str(e)}")
         logger.error(traceback.format_exc())
         raise
+
+def extract_json_from_llm_response(content: str) -> str:
+    """
+    Extract JSON content from LLM responses that might be formatted with markdown.
+    Handles both raw JSON and JSON wrapped in markdown code blocks.
+    """
+    # Check if content appears to be wrapped in markdown code blocks
+    code_block_pattern = r'```(?:json)?\s*([\s\S]*?)\s*```'
+    match = re.search(code_block_pattern, content)
+    
+    if match:
+        logger.info("Detected markdown code block in LLM response, extracting JSON")
+        return match.group(1).strip()
+    else:
+        # No code block found, return original content
+        return content
 
 async def extract_disease_tissue(query: str, base_url: str, api_key: str) -> Dict[str, str]:
     """
@@ -225,9 +256,12 @@ async def extract_disease_tissue(query: str, base_url: str, api_key: str) -> Dic
         content = response.json()["choices"][0]["message"]["content"]
         logger.info(f"LLM response for disease extraction: {content}")
         
+        # Process the content to extract JSON if it's wrapped in markdown
+        json_content = extract_json_from_llm_response(content)
+        
         # Parse the JSON object from the response
         try:
-            result = json.loads(content)
+            result = json.loads(json_content)
             logger.info(f"Parsed disease info: {result}")
             
             # Ensure all required keys are present
@@ -364,9 +398,12 @@ async def rank_entities(entity_summaries: List[Dict], query: str, base_url: str,
         content = response.json()["choices"][0]["message"]["content"]
         logger.info(f"LLM response for ranking: {content}")
         
+        # Process the content to extract JSON if it's wrapped in markdown
+        json_content = extract_json_from_llm_response(content)
+        
         # Parse the JSON array from the response
         try:
-            ranked_entities = json.loads(content)
+            ranked_entities = json.loads(json_content)
             logger.info(f"Successfully parsed ranking JSON: {len(ranked_entities)} entities")
             
             # Ensure proper typing
@@ -376,6 +413,7 @@ async def rank_entities(entity_summaries: List[Dict], query: str, base_url: str,
         except Exception as e:
             logger.error(f"Error parsing LLM response for ranking: {str(e)}")
             logger.error(f"Response content: {content}")
+            logger.error(f"Extracted JSON content: {json_content}")
             raise HTTPException(status_code=500, detail=f"Error parsing LLM response: {str(e)}\nResponse: {content}")
         
         return ranked_entities

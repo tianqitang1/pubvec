@@ -5,6 +5,15 @@ from dotenv import load_dotenv
 from pubvec.core.pubmed_fetcher import PubMedFetcher
 from pubvec.core.vector_store import VectorStore
 
+def read_api_key(filepath="config/deepseek_api_key.txt"):
+    """Read API key from file."""
+    try:
+        with open(filepath, 'r') as f:
+            return f.read().strip()
+    except Exception as e:
+        print(f"Warning: Could not read API key from {filepath}: {e}")
+        return None
+
 def main():
     parser = argparse.ArgumentParser(description="PubVec - Biomedical Entity Ranker")
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
@@ -19,6 +28,7 @@ def main():
     web_parser = subparsers.add_parser("web", help="Run the web application")
     web_parser.add_argument("--host", default="0.0.0.0", help="Host to run the web server on")
     web_parser.add_argument("--port", type=int, default=8001, help="Port to run the web server on")
+    web_parser.add_argument("--prefill-api-key", action="store_true", help="Prefill API key from config/deepseek_api_key.txt")
     
     args = parser.parse_args()
     
@@ -41,8 +51,19 @@ def main():
     
     elif args.command == "web":
         # Run the web application
+        api_key = None
+        if args.prefill_api_key:
+            api_key = read_api_key()
+            if api_key:
+                print(f"Using API key from config/deepseek_api_key.txt")
+            else:
+                print(f"Warning: Could not load API key from config/deepseek_api_key.txt")
+        
         print(f"Starting web application on {args.host}:{args.port}")
-        from pubvec.web.app import app
+        from pubvec.web.app import app, initialize_api_key
+        if api_key:
+            initialize_api_key(api_key)
+            
         import uvicorn
         uvicorn.run(app, host=args.host, port=args.port)
     
