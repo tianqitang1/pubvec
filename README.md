@@ -1,4 +1,4 @@
-# PubMed Entity Ranking System
+# PubMed Ranking (pubvec)
 
 A multi-agent system that helps biomedical researchers rank the efficacy of alleles, genes, or drugs for specific diseases and tissue/types using PubMed data and LLM technology.
 
@@ -193,4 +193,8 @@ Process a user query to extract entities and rank them based on efficacy.
 - Vector database (ChromaDB) is persisted locally and not updated for every query
 - The PubMed dataset download is a one-time operation that fetches the entire dataset
 - The system uses BGE-M3 embeddings for vector similarity search
-- DeepSeek API integration uses an OpenAI-compatible API interface 
+- DeepSeek API integration uses an OpenAI-compatible API interface
+
+## TODO
+- Add support for more models
+- Periodically update the PubMed dataset
