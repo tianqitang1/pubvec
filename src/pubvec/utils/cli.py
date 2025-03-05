@@ -196,7 +196,7 @@ Output:
 
 async def get_entity_summary(entity: str, query: str, base_url: str, api_key: str, 
                            disease_info: Dict[str, str], store: VectorStore, 
-                           model: str, n_results: int = 5) -> str:
+                           model: str, n_results: int = 10) -> str:
     """Generate a summary of an entity's efficacy from PubMed articles."""
     try:
         # Construct a specific query for this entity
@@ -358,7 +358,7 @@ async def process_query(query: str, api_key: str, base_url: str, model: str, deb
         entity_summaries = []
         for entity in entities:
             summary = await get_entity_summary(
-                entity, query, base_url, api_key, disease_info, store, model
+                entity, query, base_url, api_key, disease_info, store, model, n_results=10
             )
             entity_summaries.append({"entity": entity, "summary": summary})
 
@@ -398,6 +398,7 @@ def display_results(results):
         score_bar = "█" * int(score * 10)
         print(f"{i+1}. {entity['name']} - Efficacy Score: {score:.2f} {score_bar}")
         print(f"   {entity.get('summary', 'No summary available')}")
+        print(f"   References: {entity.get('references', 'No references available')}")
         print()
     
     print("="*80) 
