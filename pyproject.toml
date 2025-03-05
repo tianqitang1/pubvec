@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "PubMed vector store and processing tools"
 readme = "README.md"
 requires-python = ">=3.8"
+license = { text = "MIT + Commons Clause" }
 authors = [
     { name = "PubVec Team", email = "" }
 ]
@@ -25,7 +26,8 @@ dependencies = [
 ]
 
 [project.urls]
-Repository = ""
+Repository = "https://github.com/tianqitang1/pubvec"
+"License" = "https://github.com/tianqitang1/pubvec/blob/main/LICENSE"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/pubvec"]

@@ -1,6 +1,6 @@
 # PubMed Vectorized Ranking (pubvec)
 
-A multi-agent system that helps biomedical researchers rank the efficacy of alleles, genes, or drugs for specific diseases and tissue/types using PubMed data and LLM technology.
+A system that helps biomedical researchers rank the efficacy of alleles, genes, or drugs for specific diseases and tissue/types using PubMed data and LLM technology.
 
 ## Overview
 
@@ -194,6 +194,12 @@ Process a user query to extract entities and rank them based on efficacy.
 - The PubMed dataset download is a one-time operation that fetches the entire dataset
 - The system uses BGE-M3 embeddings for vector similarity search
 - DeepSeek API integration uses an OpenAI-compatible API interface
+
+## License
+
+This project is licensed under the MIT License with Commons Clause - see the [LICENSE](LICENSE) file for details.
+
+The Commons Clause restriction prevents the software from being used commercially without permission from the copyright holders. This means you can freely use, modify, and distribute this software for non-commercial and educational purposes, but commercial use requires explicit permission.
 
 ## TODO
 - Add support for more models
