@@ -26,9 +26,21 @@ class VectorStore:
         ids = [str(article["pmid"]) for article in articles]
         documents = [f"Title: {article['title']}\nAbstract: {article['abstract']}" 
                     for article in articles]
-        metadata = [{"year": article["date"], "title": article["title"]} 
-                   for article in articles]
-        # TODO: fix metadata
+        
+        # Create more comprehensive metadata based on import_to_chroma.py
+        metadatas = []
+        for article in articles:
+            metadata = {
+                "pmid": article["pmid"],
+                "authors": article.get("authors", "")[:1000],  # Limit length
+                "publication_date": article.get("publication_date", article.get("date", "")),
+                "journal": article.get("journal", ""),
+                "publication_types": article.get("publication_types", ""),
+                "mesh_terms": article.get("mesh_terms", "")[:1000] if article.get("mesh_terms") else "",
+                "keywords": article.get("keywords", "")[:1000] if article.get("keywords") else "",
+                "title": article["title"]  # Keep title in metadata for easy access
+            }
+            metadatas.append(metadata)
         
         # Add in batches of 100
         batch_size = 100
@@ -36,7 +48,7 @@ class VectorStore:
             self.collection.add(
                 ids=ids[i:i + batch_size],
                 documents=documents[i:i + batch_size],
-                metadatas=metadata[i:i + batch_size]
+                metadatas=metadatas[i:i + batch_size]
             )
             
     def search(self, query: str, n_results: int = 5) -> List[Dict]:
