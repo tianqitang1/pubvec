@@ -73,3 +73,5 @@ coverage.xml
 results.json
 config/
 results copy.json
+article/
+backup_article.sh
